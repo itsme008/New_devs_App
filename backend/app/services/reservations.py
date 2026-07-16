@@ -1,18 +1,33 @@
 from datetime import datetime
-from decimal import Decimal
-from typing import Dict, Any, List
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Dict, Any, List, Tuple
+from zoneinfo import ZoneInfo
 
-async def calculate_monthly_revenue(property_id: str, month: int, year: int, db_session=None) -> Decimal:
+UTC = ZoneInfo("UTC")
+CENT = Decimal("0.01")
+
+
+def get_month_boundaries_utc(year: int, month: int, property_timezone: str = "UTC") -> Tuple[datetime, datetime]:
+    """Returns UTC-aware (start, end) boundaries for `month` as experienced in `property_timezone`."""
+    tz = ZoneInfo(property_timezone)
+    start_local = datetime(year, month, 1, tzinfo=tz)
+    if month < 12:
+        end_local = datetime(year, month + 1, 1, tzinfo=tz)
+    else:
+        end_local = datetime(year + 1, 1, 1, tzinfo=tz)
+
+    return start_local.astimezone(UTC), end_local.astimezone(UTC)
+
+
+async def calculate_monthly_revenue(
+    property_id: str, month: int, year: int, property_timezone: str = "UTC", db_session=None
+) -> Decimal:
     """
     Calculates revenue for a specific month.
     """
 
-    start_date = datetime(year, month, 1)
-    if month < 12:
-        end_date = datetime(year, month + 1, 1)
-    else:
-        end_date = datetime(year + 1, 1, 1)
-        
+    start_date, end_date = get_month_boundaries_utc(year, month, property_timezone)
+
     print(f"DEBUG: Querying revenue for {property_id} from {start_date} to {end_date}")
 
     # SQL Simulation (This would be executed against the actual DB)
@@ -65,7 +80,8 @@ async def calculate_total_revenue(property_id: str, tenant_id: str) -> Dict[str,
                 row = result.fetchone()
                 
                 if row:
-                    total_revenue = Decimal(str(row.total_revenue))
+                    # Round to cents here, before the float cast downstream loses precision.
+                    total_revenue = Decimal(str(row.total_revenue)).quantize(CENT, rounding=ROUND_HALF_UP)
                     return {
                         "property_id": property_id,
                         "tenant_id": tenant_id,
